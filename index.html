@@ -1,0 +1,1328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Misakamm Tetr AI</title>
+    <style>
+        :root {
+            --bg-0: #070b14;
+            --bg-1: #0f1728;
+            --line: #2a3856;
+            --line-soft: #1c2740;
+            --text: #d8e4ff;
+            --muted: #8290b3;
+            --accent: #59ffc9;
+            --accent-2: #7ecbff;
+            --danger: #ff628a;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            min-height: 100vh;
+            font-family: "Courier New", monospace;
+            color: var(--text);
+            background:
+                radial-gradient(1100px 700px at 0% -15%, #1c2d55 0%, transparent 58%),
+                radial-gradient(1000px 700px at 100% 115%, #29172f 0%, transparent 55%),
+                linear-gradient(180deg, var(--bg-1), var(--bg-0));
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+            padding: 18px;
+        }
+        h1 {
+            margin-top: 4px;
+            color: var(--accent);
+            letter-spacing: 0.32rem;
+            font-size: clamp(1rem, 2.2vw, 1.52rem);
+            text-shadow: 0 0 24px #59ffc955;
+        }
+        .layout {
+            width: min(1020px, 100%);
+            display: grid;
+            grid-template-columns: minmax(320px, 1fr) 290px;
+            gap: 14px;
+            align-items: stretch;
+            min-height: 0;
+        }
+        .viewer,
+        .panel {
+            border: 1px solid var(--line);
+            background: #0b1222cc;
+            backdrop-filter: blur(2px);
+            min-height: 0;
+        }
+        .viewer {
+            padding: 14px;
+            display: grid;
+            place-items: center;
+            height: calc(100dvh - 104px);
+            overflow: hidden;
+            position: relative;
+        }
+        #canvas {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 100%;
+        }
+        .panel {
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            height: calc(100dvh - 104px);
+            overflow: auto;
+        }
+        .group {
+            border: 1px solid var(--line-soft);
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .group h2 {
+            color: var(--accent-2);
+            font-weight: normal;
+            letter-spacing: 2px;
+            font-size: 0.76rem;
+        }
+        .row {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            color: var(--muted);
+            font-size: 0.72rem;
+            letter-spacing: 1px;
+        }
+        .row strong {
+            color: var(--text);
+            font-weight: normal;
+        }
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .buttons .wide {
+            grid-column: span 2;
+        }
+        button,
+        a.back {
+            border: 1px solid #3b4a73;
+            background: #131d36;
+            color: var(--text);
+            padding: 8px;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 1px;
+            font-size: 0.72rem;
+            text-decoration: none;
+            text-align: center;
+            transition: 0.2s;
+        }
+        button:hover,
+        a.back:hover {
+            border-color: var(--accent);
+            box-shadow: 0 0 18px #59ffc933;
+            color: #f5fffc;
+        }
+        .hint {
+            color: var(--muted);
+            font-size: 0.66rem;
+            line-height: 1.5;
+            letter-spacing: 1px;
+        }
+        .tag {
+            color: var(--danger);
+        }
+        @media (max-aspect-ratio: 1 / 1) {
+            .layout {
+                grid-template-columns: 1fr;
+                min-height: auto;
+            }
+            .viewer {
+                height: auto;
+                padding: 10px;
+            }
+            #canvas {
+                width: min(620px, 100%);
+                height: auto;
+                max-width: 100%;
+                max-height: none;
+            }
+            .panel {
+                height: auto;
+                overflow: visible;
+            }
+            .buttons {
+                grid-template-columns: repeat(3, 1fr);
+            }
+            .buttons .wide {
+                grid-column: span 3;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Misakamm Tetr AI</h1>
+    <div class="layout">
+        <section class="viewer">
+            <canvas id="canvas" width="620" height="880"></canvas>
+        </section>
+
+        <aside class="panel">
+            <section class="group">
+                <h2>Game Info</h2>
+                <div class="row"><span>Status</span><strong id="status">RUNNING</strong></div>
+                <div class="row"><span>Pieces</span><strong id="pieceCount">0</strong></div>
+                <div class="row"><span>Lines</span><strong id="lineCount">0</strong></div>
+                <div class="row"><span>Speed</span><strong id="speedVal">x1.0</strong></div>
+                <div class="row"><span>Board</span><strong id="boardVal">10 x 20</strong></div>
+                <div class="row"><span>Best Score</span><strong id="bestScore">--</strong></div>
+            </section>
+
+            <section class="group">
+                <h2>Move Pipeline</h2>
+                <div class="row"><span>Step 1</span><strong>Rotate</strong></div>
+                <div class="row"><span>Step 2</span><strong>Shift</strong></div>
+                <div class="row"><span>Step 3</span><strong>Drop</strong></div>
+                <div class="row"><span>Target X / R</span><strong id="targetInfo">--</strong></div>
+            </section>
+
+            <section class="group">
+                <h2>Actions</h2>
+                <div class="buttons">
+                    <button id="speedDownBtn">SPEED -</button>
+                    <button id="speedUpBtn">SPEED +</button>
+                    <button id="heightDownBtn">HEIGHT -</button>
+                    <button id="heightUpBtn">HEIGHT +</button>
+                </div>
+            </section>
+
+            <section class="group">
+                <h2>Results</h2>
+                <div class="row"><span>Games</span><strong id="gameCount">0</strong></div>
+                <div class="row"><span>Average</span><strong id="avgScore">--</strong></div>
+                <div class="row"><span>Median</span><strong id="medianScore">--</strong></div>
+            </section>
+
+        </aside>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("canvas");
+        const ctx = canvas.getContext("2d");
+        const viewerEl = document.querySelector(".viewer");
+
+        const ui = {
+            status: document.getElementById("status"),
+            pieceCount: document.getElementById("pieceCount"),
+            lineCount: document.getElementById("lineCount"),
+            speedVal: document.getElementById("speedVal"),
+            boardVal: document.getElementById("boardVal"),
+            bestScore: document.getElementById("bestScore"),
+            targetInfo: document.getElementById("targetInfo"),
+            gameCount: document.getElementById("gameCount"),
+            avgScore: document.getElementById("avgScore"),
+            medianScore: document.getElementById("medianScore"),
+            speedDownBtn: document.getElementById("speedDownBtn"),
+            speedUpBtn: document.getElementById("speedUpBtn"),
+            heightDownBtn: document.getElementById("heightDownBtn"),
+            heightUpBtn: document.getElementById("heightUpBtn")
+        };
+
+        const W = 10;
+        const MIN_BOARD_H = 3;
+        const MAX_BOARD_H = 30;
+        let boardHeight = 20;
+        const SPAWN_Y = -4;
+        const NEXT_COUNT = 2;
+
+        const COLORS = {
+            I: "#58d9ff",
+            O: "#ffd65b",
+            T: "#bc83ff",
+            S: "#6dff84",
+            Z: "#ff6f7f",
+            J: "#6f9cff",
+            L: "#ffb362"
+        };
+
+        const PIECES = {
+            I: {
+                cells: [[0, 1], [1, 1], [2, 1], [3, 1]],
+                pivot: [1.5, 1.5],
+                uniqueRotations: 2
+            },
+            O: {
+                cells: [[1, 0], [2, 0], [1, 1], [2, 1]],
+                pivot: [1.5, 0.5],
+                uniqueRotations: 1
+            },
+            T: {
+                cells: [[1, 0], [0, 1], [1, 1], [2, 1]],
+                pivot: [1, 1],
+                uniqueRotations: 4
+            },
+            S: {
+                cells: [[1, 0], [2, 0], [0, 1], [1, 1]],
+                pivot: [1, 1],
+                uniqueRotations: 2
+            },
+            Z: {
+                cells: [[0, 0], [1, 0], [1, 1], [2, 1]],
+                pivot: [1, 1],
+                uniqueRotations: 2
+            },
+            J: {
+                cells: [[0, 0], [0, 1], [1, 1], [2, 1]],
+                pivot: [1, 1],
+                uniqueRotations: 4
+            },
+            L: {
+                cells: [[2, 0], [0, 1], [1, 1], [2, 1]],
+                pivot: [1, 1],
+                uniqueRotations: 4
+            }
+        };
+
+        const WEIGHTS = {
+            vertical: 156,
+            hole: 431,
+            x1Hole: 88,
+            landingHeight: 76,
+            rowsCleared: 114,
+            holeDepth: 92,
+            wellDepth: 99,
+            shapeAdaptability: 59
+        };
+        const PIECE_TYPES = ["I", "J", "L", "O", "S", "T", "Z"];
+
+        function syncCanvasGeometry() {
+            const totalRows = boardHeight + 4;
+            const layoutUnitsW = W + 7;
+            const aspect = layoutUnitsW / totalRows;
+            canvas.style.aspectRatio = `${layoutUnitsW} / ${totalRows}`;
+
+            if (viewerEl) {
+                const maxCssW = Math.max(220, viewerEl.clientWidth - 28);
+                const maxCssH = Math.max(220, viewerEl.clientHeight - 28);
+                let cssW = maxCssW;
+                let cssH = cssW / aspect;
+                if (cssH > maxCssH) {
+                    cssH = maxCssH;
+                    cssW = cssH * aspect;
+                }
+                canvas.style.width = `${Math.floor(cssW)}px`;
+                canvas.style.height = `${Math.floor(cssH)}px`;
+            }
+
+            const dpr = Math.min(2, window.devicePixelRatio || 1);
+            const rect = canvas.getBoundingClientRect();
+            const targetW = Math.max(320, Math.round(rect.width * dpr));
+            const targetH = Math.max(220, Math.round(rect.height * dpr));
+            if (canvas.width !== targetW || canvas.height !== targetH) {
+                canvas.width = targetW;
+                canvas.height = targetH;
+            }
+        }
+
+        function rotatePoint(x, y, px, py, turns) {
+            let rx = x;
+            let ry = y;
+            const t = ((turns % 4) + 4) % 4;
+            for (let i = 0; i < t; i++) {
+                const dx = rx - px;
+                const dy = ry - py;
+                rx = px - dy;
+                ry = py + dx;
+            }
+            return [Math.round(rx), Math.round(ry)];
+        }
+
+        function getCells(type, rot) {
+            const def = PIECES[type];
+            return def.cells.map(([x, y]) => rotatePoint(x, y, def.pivot[0], def.pivot[1], rot));
+        }
+
+        function getCellsFloat(type, baseRot, angle) {
+            const def = PIECES[type];
+            const turns = ((baseRot % 4) + 4) % 4;
+            const prerot = def.cells.map(([x, y]) => rotatePoint(x, y, def.pivot[0], def.pivot[1], turns));
+            const rad = angle * Math.PI / 180;
+            const c = Math.cos(rad);
+            const s = Math.sin(rad);
+            const px = def.pivot[0];
+            const py = def.pivot[1];
+            return prerot.map(([x, y]) => {
+                const dx = x - px;
+                const dy = y - py;
+                return [px + dx * c - dy * s, py + dx * s + dy * c];
+            });
+        }
+
+        function createBoard() {
+            return Array.from({ length: boardHeight }, () => Array(W).fill(null));
+        }
+
+        function cloneBoard(board) {
+            return board.map((row) => row.slice());
+        }
+
+        function inBoundsX(x) {
+            return x >= 0 && x < W;
+        }
+
+        function canPlace(board, type, rot, ox, oy) {
+            const cells = getCells(type, rot);
+            for (const [cx, cy] of cells) {
+                const x = ox + cx;
+                const y = oy + cy;
+                if (!inBoundsX(x) || y >= boardHeight) return false;
+                if (y >= 0 && board[y][x]) return false;
+            }
+            return true;
+        }
+
+        function hardDropY(board, type, rot, ox, startY) {
+            let y = startY;
+            while (canPlace(board, type, rot, ox, y + 1)) {
+                y++;
+            }
+            return y;
+        }
+
+        function fullRows(board) {
+            const rows = [];
+            for (let y = 0; y < boardHeight; y++) {
+                if (board[y].every((cell) => cell !== null)) rows.push(y);
+            }
+            return rows;
+        }
+
+        function clearRows(board, rows) {
+            if (rows.length === 0) return;
+            const keep = [];
+            for (let y = 0; y < boardHeight; y++) {
+                if (!rows.includes(y)) keep.push(board[y]);
+            }
+            while (keep.length < boardHeight) keep.unshift(Array(W).fill(null));
+            for (let y = 0; y < boardHeight; y++) board[y] = keep[y];
+        }
+
+        function allRotationStates(type) {
+            const unique = PIECES[type].uniqueRotations;
+            const seen = new Set();
+            const out = [];
+            for (let rot = 0; rot < unique; rot++) {
+                const cells = getCells(type, rot);
+                const key = cells
+                    .slice()
+                    .sort((a, b) => (a[1] - b[1]) || (a[0] - b[0]))
+                    .map(([x, y]) => `${x},${y}`)
+                    .join(";");
+                if (seen.has(key)) continue;
+                seen.add(key);
+                let landingBase = 0;
+                for (const [, y] of cells) {
+                    landingBase += y;
+                }
+                out.push({ rot, cells, landingBase });
+            }
+            return out;
+        }
+
+        const ROTATION_STATES = Object.fromEntries(
+            Object.keys(PIECES).map((type) => [type, allRotationStates(type)])
+        );
+
+        function xBounds(cells) {
+            let minX = Infinity;
+            let maxX = -Infinity;
+            for (const [x] of cells) {
+                minX = Math.min(minX, x);
+                maxX = Math.max(maxX, x);
+            }
+            return [minX, maxX];
+        }
+
+        function boardToBitboard(board) {
+            const rowsBits = new Uint16Array(boardHeight);
+            const colHeights = new Int16Array(W);
+            for (let y = 0; y < boardHeight; y++) {
+                let bits = 0;
+                for (let x = 0; x < W; x++) {
+                    if (board[y][x] !== null) {
+                        bits |= (1 << x);
+                        if (colHeights[x] === 0) {
+                            colHeights[x] = boardHeight - y;
+                        }
+                    }
+                }
+                rowsBits[y] = bits;
+            }
+            return { rowsBits, colHeights };
+        }
+
+        function cloneBitboard(bitboard) {
+            return {
+                rowsBits: Uint16Array.from(bitboard.rowsBits),
+                colHeights: Int16Array.from(bitboard.colHeights)
+            };
+        }
+
+        function bitTest(bitboard, row, col) {
+            return ((bitboard.rowsBits[row] >> col) & 1) !== 0;
+        }
+
+        function bitSet(bitboard, row, col) {
+            bitboard.rowsBits[row] |= (1 << col);
+            const height = boardHeight - row;
+            if (height > bitboard.colHeights[col]) {
+                bitboard.colHeights[col] = height;
+            }
+        }
+
+        function canPlaceBitboard(bitboard, cells, ox, oy) {
+            for (const [cx, cy] of cells) {
+                const x = ox + cx;
+                const y = oy + cy;
+                if (x < 0 || x >= W || y >= boardHeight) return false;
+                if (y >= 0 && bitTest(bitboard, y, x)) return false;
+            }
+            return true;
+        }
+
+        function hardDropYBitboard(bitboard, cells, ox, startY) {
+            let y = startY;
+            while (canPlaceBitboard(bitboard, cells, ox, y + 1)) {
+                y++;
+            }
+            return y;
+        }
+
+        function clearLinesBitboard(bitboard) {
+            const fullMask = (1 << W) - 1;
+            const nextRows = [];
+            let cleared = 0;
+            for (let y = boardHeight - 1; y >= 0; y--) {
+                if (bitboard.rowsBits[y] === fullMask) {
+                    cleared++;
+                } else {
+                    nextRows.push(bitboard.rowsBits[y]);
+                }
+            }
+            while (nextRows.length < boardHeight) nextRows.push(0);
+            nextRows.reverse();
+            bitboard.rowsBits = Uint16Array.from(nextRows);
+            bitboard.colHeights.fill(0);
+            for (let y = 0; y < boardHeight; y++) {
+                const bits = bitboard.rowsBits[y];
+                if (!bits) continue;
+                for (let x = 0; x < W; x++) {
+                    if (((bits >> x) & 1) !== 0 && bitboard.colHeights[x] === 0) {
+                        bitboard.colHeights[x] = boardHeight - y;
+                    }
+                }
+            }
+            return cleared;
+        }
+
+
+        function evaluateShapeAdaptability(colHeights) {
+            if (colHeights.length <= 1) return 0;
+            const boardDiff = [];
+            for (let i = 1; i < colHeights.length; i++) {
+                boardDiff.push(colHeights[i] - colHeights[i - 1]);
+            }
+
+            function profileDiff(profile) {
+                const out = [];
+                for (let i = 1; i < profile.length; i++) out.push(profile[i] - profile[i - 1]);
+                return out;
+            }
+
+            function negateDiff(diff) {
+                return diff.map((v) => -v);
+            }
+
+            function pieceBottomProfile(cells) {
+                const [minC, maxC] = xBounds(cells);
+                const bottom = [];
+                for (let c = minC; c <= maxC; c++) {
+                    let bottomR = -1;
+                    for (const [x, y] of cells) {
+                        if (x === c) bottomR = Math.max(bottomR, y);
+                    }
+                    bottom.push(bottomR);
+                }
+                return bottom;
+            }
+
+            function matchWindow(start, pattern) {
+                for (let i = 0; i < pattern.length; i++) {
+                    if (boardDiff[start + i] !== pattern[i]) return false;
+                }
+                return true;
+            }
+
+            function adaptabilityScoreFromMatchCount(matches) {
+                if (matches <= 0) return 0;
+                if (matches === 1) return 4;
+                if (matches === 2) return 6;
+                return 7;
+            }
+
+            let total = 0;
+            for (const type of Object.keys(PIECES)) {
+                if (type === "I") continue;
+                const uniquePatterns = new Map();
+                for (const rotState of ROTATION_STATES[type]) {
+                    const profile = pieceBottomProfile(rotState.cells);
+                    if (profile.length <= 1) continue;
+                    const diff = profileDiff(profile);
+                    if (!diff.length) continue;
+                    uniquePatterns.set(diff.join(","), diff);
+                    const neg = negateDiff(diff);
+                    uniquePatterns.set(neg.join(","), neg);
+                }
+
+                let pieceMatches = 0;
+                for (const pattern of uniquePatterns.values()) {
+                    if (pattern.length > boardDiff.length) continue;
+                    const maxStart = boardDiff.length - pattern.length;
+                    for (let start = 0; start <= maxStart; start++) {
+                        if (matchWindow(start, pattern)) {
+                            pieceMatches++;
+                        }
+                    }
+                }
+                total += adaptabilityScoreFromMatchCount(pieceMatches);
+            }
+            return total;
+        }
+
+        function evaluateBoard(bitboard, rowsCleared, landingHeight, erodedPieceCellsMetric) {
+            const colHeights = Array.from(bitboard.colHeights);
+            let holeScore = 0;
+            let x1Hole = 0;
+            const holeHeights = [];
+
+            for (let x = 0; x < W; x++) {
+                const h = colHeights[x];
+                if (h === 0) continue;
+                const firstFilledRow = boardHeight - h;
+                for (let y = firstFilledRow; y < boardHeight; y++) {
+                    if (!bitTest(bitboard, y, x)) {
+                        holeScore++;
+                        if (x <= 1 || x >= W - 2) x1Hole++;
+                        holeHeights.push({ height: boardHeight - y, columnHeight: h });
+                    }
+                }
+            }
+
+            let columnTransitions = 0;
+            for (let x = 0; x < W; x++) {
+                let prev = 0;
+                for (let y = 0; y < boardHeight; y++) {
+                    const cur = bitTest(bitboard, y, x) ? 1 : 0;
+                    if (cur !== prev) {
+                        columnTransitions++;
+                        prev = cur;
+                    }
+                }
+                if (prev === 0) columnTransitions++;
+            }
+
+            let holeDepth = 0;
+            if (holeHeights.length) {
+                const highestHole = Math.max(...holeHeights.map((h) => h.height));
+                for (let i = 0; i < holeHeights.length; i++) {
+                    if (holeHeights[i].height === highestHole) {
+                        holeDepth = Math.max(holeDepth, holeHeights[i].columnHeight);
+                    }
+                }
+            }
+
+            let rowTransitions = 0;
+            for (let y = 0; y < boardHeight; y++) {
+                let prev = 1;
+                for (let x = 0; x < W; x++) {
+                    const cur = bitTest(bitboard, y, x) ? 1 : 0;
+                    if (cur !== prev) {
+                        rowTransitions++;
+                        prev = cur;
+                    }
+                }
+                if (prev !== 1) rowTransitions++;
+            }
+
+            function getHeight(c) {
+                if (c < 0 || c >= W) return boardHeight;
+                return colHeights[c];
+            }
+
+            function calcWellScore(leftH, centerH, rightH) {
+                const h = Math.min(leftH, rightH) - centerH;
+                if (h <= 0) return 0;
+                return h * (h + 1) / 2.0;
+            }
+
+            let wellDepthSum = 0;
+            let wellDepthMax = 0;
+            for (let c = 0; c < W; c++) {
+                const centerH = getHeight(c);
+                const leftH = getHeight(c - 1);
+                const rightH = getHeight(c + 1);
+                if (leftH < centerH || rightH < centerH) {
+                    continue;
+                }
+
+                const wellScore = calcWellScore(leftH, centerH, rightH);
+                wellDepthSum += wellScore;
+                wellDepthMax = Math.max(wellDepthMax, wellScore);
+            }
+            const wellDepth = 2 * wellDepthSum - wellDepthMax;
+
+            const shapeAdaptability = evaluateShapeAdaptability(colHeights);
+
+            return (
+                WEIGHTS.landingHeight * landingHeight +
+                WEIGHTS.rowsCleared * rowsCleared -
+                100.0 * rowTransitions -
+                WEIGHTS.vertical * columnTransitions -
+                WEIGHTS.hole * holeScore -
+                WEIGHTS.x1Hole * x1Hole -
+                WEIGHTS.holeDepth * holeDepth -
+                WEIGHTS.wellDepth * wellDepth +
+                WEIGHTS.shapeAdaptability * shapeAdaptability / 6.0
+            );
+        }
+
+        function evaluateMove(bitboard, type, rotState, x) {
+            const cells = rotState.cells;
+            if (!canPlaceBitboard(bitboard, cells, x, SPAWN_Y)) return null;
+            const y = hardDropYBitboard(bitboard, cells, x, SPAWN_Y);
+            const placed = cells.map(([cx, cy]) => [x + cx, y + cy]);
+            if (placed.some(([, py]) => py < 0)) return null;
+
+            const next = cloneBitboard(bitboard);
+            const pieceCellsOnRow = new Map();
+            for (const [px, py] of placed) {
+                bitSet(next, py, px);
+                pieceCellsOnRow.set(py, (pieceCellsOnRow.get(py) || 0) + 1);
+            }
+
+            const landingHeight = y + rotState.landingBase / 4.0;
+            const fullMask = (1 << W) - 1;
+            let rowsCleared = 0;
+            let erodedCells = 0;
+            for (let row = 0; row < boardHeight; row++) {
+                if (next.rowsBits[row] === fullMask) {
+                    rowsCleared++;
+                    erodedCells += pieceCellsOnRow.get(row) || 0;
+                }
+            }
+            const erodedPieceCellsMetric = rowsCleared * erodedCells;
+            clearLinesBitboard(next);
+            const score = evaluateBoard(next, rowsCleared, landingHeight, erodedPieceCellsMetric);
+            const [minX, maxX] = xBounds(cells);
+            const landingCenterTimesTwo = 2 * x + minX + maxX;
+            const boardCenterTimesTwo = W - 1;
+            const centerBias = Math.abs(landingCenterTimesTwo - boardCenterTimesTwo);
+            return { x, y, rot: rotState.rot, score, centerBias, boardAfter: next };
+        }
+
+        function chooseBestMove(board, type) {
+            const bitboard = boardToBitboard(board);
+            const choices = [];
+            for (const rotState of ROTATION_STATES[type]) {
+                const [minX, maxX] = xBounds(rotState.cells);
+                for (let x = -minX; x <= W - 1 - maxX; x++) {
+                    const mv = evaluateMove(bitboard, type, rotState, x);
+                    if (mv) choices.push(mv);
+                }
+            }
+            if (!choices.length) return null;
+            choices.sort((a, b) => {
+                if (a.score !== b.score) return b.score - a.score;
+                if (a.centerBias !== b.centerBias) return a.centerBias - b.centerBias;
+                return a.x - b.x;
+            });
+
+            return choices[0];
+        }
+
+
+        function randomPieceType() {
+            return PIECE_TYPES[(Math.random() * PIECE_TYPES.length) | 0];
+        }
+
+        const state = {
+            board: createBoard(),
+            queue: [],
+            current: null,
+            target: null,
+            actions: [],
+            action: null,
+            clearRows: [],
+            clearTimer: 0,
+            particles: [],
+            gameOver: false,
+            gameOverTimer: 0,
+            pieceCount: 0,
+            lines: 0,
+            bestMoveScore: null,
+            speed: 1,
+        };
+        const scoreHistory = [];
+
+        function pullType() {
+            while (state.queue.length < NEXT_COUNT + 1) {
+                state.queue.push(randomPieceType());
+            }
+            return state.queue.shift();
+        }
+
+        function refreshHUD() {
+            ui.status.textContent = state.gameOver ? "FAILED" : "RUNNING";
+            ui.pieceCount.textContent = String(state.pieceCount);
+            ui.lineCount.textContent = String(state.lines);
+            ui.speedVal.textContent = `x${state.speed.toFixed(1)}`;
+            ui.boardVal.textContent = `10 x ${boardHeight}`;
+            ui.bestScore.textContent = state.bestMoveScore === null ? "--" : state.bestMoveScore.toFixed(2);
+            if (!state.target) {
+                ui.targetInfo.textContent = "--";
+            } else {
+                ui.targetInfo.textContent = `${state.target.x} / ${state.target.rot}`;
+            }
+        }
+
+        function median(values) {
+            if (!values.length) return null;
+            const sorted = values.slice().sort((a, b) => a - b);
+            const mid = Math.floor(sorted.length / 2);
+            if (sorted.length % 2 === 1) return sorted[mid];
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        }
+
+        function refreshResults() {
+            ui.gameCount.textContent = String(scoreHistory.length);
+            if (!scoreHistory.length) {
+                ui.avgScore.textContent = "--";
+                ui.medianScore.textContent = "--";
+                return;
+            }
+            const avg = scoreHistory.reduce((sum, score) => sum + score, 0) / scoreHistory.length;
+            ui.avgScore.textContent = avg.toFixed(1);
+            ui.medianScore.textContent = median(scoreHistory).toFixed(1);
+        }
+
+        function recordGameScore() {
+            scoreHistory.push(state.lines);
+            refreshResults();
+        }
+
+        function clearScoreHistory() {
+            scoreHistory.length = 0;
+            refreshResults();
+        }
+
+        function resetGame() {
+            syncCanvasGeometry();
+            state.board = createBoard();
+            state.queue = [];
+            state.current = null;
+            state.target = null;
+            state.actions = [];
+            state.action = null;
+            state.clearRows = [];
+            state.clearTimer = 0;
+            state.particles = [];
+            state.gameOver = false;
+            state.gameOverTimer = 0;
+            state.pieceCount = 0;
+            state.lines = 0;
+            state.bestMoveScore = null;
+            spawnPiece();
+            refreshHUD();
+        }
+
+        function spawnPiece() {
+            const type = pullType();
+            state.current = {
+                type,
+                x: 3,
+                y: SPAWN_Y,
+                rot: 0,
+                drawX: 3,
+                drawY: SPAWN_Y,
+                drawAngle: 0
+            };
+
+            const best = chooseBestMove(state.board, type);
+            state.target = best;
+            state.bestMoveScore = best ? best.score : null;
+            state.actions = [];
+            state.action = null;
+
+            if (!best) {
+                triggerGameOver();
+                return;
+            }
+
+            const rotSteps = (best.rot - state.current.rot + 4) % 4;
+            if (rotSteps === 3) {
+                state.actions.push({ type: "rotate", dir: -1 });
+            } else {
+                for (let i = 0; i < rotSteps; i++) state.actions.push({ type: "rotate", dir: 1 });
+            }
+
+            const shift = best.x - state.current.x;
+            if (shift !== 0) {
+                const dir = shift > 0 ? 1 : -1;
+                for (let i = 0; i < Math.abs(shift); i++) state.actions.push({ type: "shift", dir });
+            }
+
+            state.actions.push({ type: "drop", toY: best.y });
+            refreshHUD();
+        }
+
+        function triggerGameOver() {
+            if (state.gameOver) {
+                return;
+            }
+            recordGameScore();
+            state.gameOver = true;
+            state.gameOverTimer = 3;
+            refreshHUD();
+        }
+
+        function startNextAction() {
+            if (!state.current || state.gameOver || state.clearTimer > 0) return;
+            const c = state.current;
+            if (state.speed >= 16) {
+                for (const act of state.actions) {
+                    if (act.type === "rotate") {
+                        c.rot = (c.rot + act.dir + 4) % 4;
+                    } else if (act.type === "shift") {
+                        c.x += act.dir;
+                    } else if (act.type === "drop") {
+                        c.y = act.toY;
+                    }
+                }
+                state.actions = [];
+                c.drawX = c.x;
+                c.drawY = c.y;
+                c.drawAngle = 0;
+                state.action = null;
+                lockCurrent();
+                return;
+            }
+            if (!state.actions.length) {
+                lockCurrent();
+                return;
+            }
+            const act = state.actions.shift();
+            if (act.type === "rotate") {
+                const from = c.rot;
+                const to = (c.rot + act.dir + 4) % 4;
+                state.action = {
+                    type: "rotate",
+                    dir: act.dir,
+                    from,
+                    to,
+                    t: 0,
+                    dur: 0.18 / state.speed
+                };
+            } else if (act.type === "shift") {
+                state.action = {
+                    type: "shift",
+                    dir: act.dir,
+                    fromX: c.x,
+                    toX: c.x + act.dir,
+                    t: 0,
+                    dur: 0.08 / state.speed
+                };
+            } else {
+                if (state.speed >= 8) {
+                    c.y = act.toY;
+                    c.drawY = c.y;
+                    c.drawX = c.x;
+                    c.drawAngle = 0;
+                    state.action = null;
+                    return;
+                }
+                state.action = {
+                    type: "drop",
+                    fromY: c.y,
+                    toY: act.toY,
+                    t: 0,
+                    dur: Math.max(0.18, (0.19 + Math.abs(act.toY - c.y) * 0.012) / state.speed)
+                };
+            }
+        }
+
+        function easeInOut(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function updateAction(dt) {
+            if (!state.action) return;
+            const a = state.action;
+            const c = state.current;
+            a.t += dt;
+            const p = Math.min(1, a.t / a.dur);
+
+            if (a.type === "rotate") {
+                c.drawX = c.x;
+                c.drawY = c.y;
+                c.drawAngle = a.dir * 90 * easeInOut(p);
+                if (p >= 1) {
+                    c.rot = a.to;
+                    c.drawAngle = 0;
+                    state.action = null;
+                }
+            } else if (a.type === "shift") {
+                c.drawX = a.fromX + (a.toX - a.fromX) * easeInOut(p);
+                c.drawY = c.y;
+                c.drawAngle = 0;
+                if (p >= 1) {
+                    c.x = a.toX;
+                    c.drawX = c.x;
+                    state.action = null;
+                }
+            } else {
+                c.drawY = a.fromY + (a.toY - a.fromY) * easeInOut(p);
+                c.drawX = c.x;
+                c.drawAngle = 0;
+                if (p >= 1) {
+                    c.y = a.toY;
+                    c.drawY = c.y;
+                    state.action = null;
+                }
+            }
+        }
+
+        function makeExplosions(rows) {
+            const p = [];
+            for (const y of rows) {
+                for (let x = 0; x < W; x++) {
+                    const type = state.board[y][x];
+                    if (!type) continue;
+                    for (let i = 0; i < 7; i++) {
+                        p.push({
+                            x: x + 0.5,
+                            y: y + 0.5,
+                            vx: (Math.random() - 0.5) * 7,
+                            vy: -Math.random() * 4.8 - 1.3,
+                            life: 0.5 + Math.random() * 0.35,
+                            age: 0,
+                            color: COLORS[type],
+                            size: 0.11 + Math.random() * 0.08
+                        });
+                    }
+                }
+            }
+            state.particles.push(...p);
+        }
+
+        function lockCurrent() {
+            const c = state.current;
+            const cells = getCells(c.type, c.rot).map(([cx, cy]) => [c.x + cx, c.y + cy]);
+
+            let above = false;
+            for (const [x, y] of cells) {
+                if (y < 0) {
+                    above = true;
+                    continue;
+                }
+                if (y < boardHeight && x >= 0 && x < W) state.board[y][x] = c.type;
+            }
+
+            state.pieceCount++;
+
+            if (above) {
+                triggerGameOver();
+                return;
+            }
+
+            const rows = fullRows(state.board);
+            if (rows.length > 0) {
+                if (state.speed >= 16) {
+                    clearRows(state.board, rows);
+                    state.lines += rows.length;
+                    state.clearRows = [];
+                    state.clearTimer = 0;
+                    spawnPiece();
+                } else {
+                    makeExplosions(rows);
+                    state.clearRows = rows;
+                    state.clearTimer = 0.24;
+                }
+            }
+
+            if (rows.length === 0) {
+                spawnPiece();
+            }
+            refreshHUD();
+        }
+
+        function updateParticles(dt) {
+            const g = 15.5;
+            for (const p of state.particles) {
+                p.age += dt;
+                p.vy += g * dt;
+                p.x += p.vx * dt;
+                p.y += p.vy * dt;
+            }
+            state.particles = state.particles.filter((p) => p.age < p.life);
+        }
+
+        function drawBlock(px, py, size, color, alpha = 1) {
+            if (py + size < 0) return;
+            ctx.globalAlpha = alpha;
+            ctx.fillStyle = color;
+            ctx.fillRect(px, py, size, size);
+
+            ctx.lineWidth = Math.max(1, size * 0.06);
+            ctx.strokeStyle = "#0a1022";
+            ctx.strokeRect(px + 0.5, py + 0.5, size - 1, size - 1);
+
+            ctx.fillStyle = "rgba(255,255,255,0.23)";
+            ctx.beginPath();
+            ctx.moveTo(px, py + size);
+            ctx.lineTo(px, py);
+            ctx.lineTo(px + size, py);
+            ctx.lineTo(px + size * 0.78, py + size * 0.22);
+            ctx.lineTo(px + size * 0.22, py + size * 0.22);
+            ctx.lineTo(px + size * 0.22, py + size * 0.78);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.fillStyle = "rgba(0,0,0,0.22)";
+            ctx.beginPath();
+            ctx.moveTo(px + size, py);
+            ctx.lineTo(px + size, py + size);
+            ctx.lineTo(px, py + size);
+            ctx.lineTo(px + size * 0.22, py + size * 0.78);
+            ctx.lineTo(px + size * 0.78, py + size * 0.78);
+            ctx.lineTo(px + size * 0.78, py + size * 0.22);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.globalAlpha = 1;
+        }
+
+        function drawScene() {
+            const ww = canvas.width;
+            const hh = canvas.height;
+
+            ctx.clearRect(0, 0, ww, hh);
+            ctx.fillStyle = "#091127";
+            ctx.fillRect(0, 0, ww, hh);
+
+            const margin = 28;
+            const spawnRows = 4;
+            const totalRows = boardHeight + spawnRows;
+            const boardWpx = ww * 0.6;
+            const cell = Math.min((boardWpx - 2) / W, (hh - margin * 2 - 2) / totalRows);
+            const bw = cell * W;
+            const bh = cell * boardHeight;
+            const totalH = cell * totalRows;
+            const bx = margin;
+            const by = (hh - totalH) * 0.5;
+            const boardY = by + spawnRows * cell;
+
+            const sideX = bx + bw + 28;
+
+            const spawnGrad = ctx.createLinearGradient(bx, by, bx, boardY);
+            spawnGrad.addColorStop(0, "#1f2944");
+            spawnGrad.addColorStop(1, "#111a31");
+            ctx.fillStyle = spawnGrad;
+            ctx.fillRect(bx - 2, by - 2, bw + 4, spawnRows * cell + 2);
+
+            const grad = ctx.createLinearGradient(bx, boardY, bx, boardY + bh);
+            grad.addColorStop(0, "#111a31");
+            grad.addColorStop(1, "#0a0f20");
+            ctx.fillStyle = grad;
+            ctx.fillRect(bx - 2, boardY - 2, bw + 4, bh + 4);
+
+            ctx.strokeStyle = "#33446f";
+            ctx.lineWidth = 2;
+            ctx.strokeRect(bx - 2, by - 2, bw + 4, totalH + 4);
+
+            ctx.strokeStyle = "rgba(150, 182, 235, 0.45)";
+            ctx.setLineDash([7, 6]);
+            ctx.beginPath();
+            ctx.moveTo(bx, boardY);
+            ctx.lineTo(bx + bw, boardY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            ctx.strokeStyle = "rgba(80, 100, 150, 0.21)";
+            ctx.lineWidth = 1;
+            for (let x = 1; x < W; x++) {
+                const gx = bx + x * cell;
+                ctx.beginPath();
+                ctx.moveTo(gx, boardY);
+                ctx.lineTo(gx, boardY + bh);
+                ctx.stroke();
+            }
+            for (let y = 1; y < boardHeight; y++) {
+                const gy = boardY + y * cell;
+                ctx.beginPath();
+                ctx.moveTo(bx, gy);
+                ctx.lineTo(bx + bw, gy);
+                ctx.stroke();
+            }
+
+            const flash = state.clearTimer > 0 ? Math.sin((0.24 - state.clearTimer) * 70) * 0.5 + 0.5 : 0;
+
+            for (let y = 0; y < boardHeight; y++) {
+                for (let x = 0; x < W; x++) {
+                    const type = state.board[y][x];
+                    if (!type) continue;
+                    const hit = state.clearRows.includes(y) && state.clearTimer > 0;
+                    drawBlock(
+                        bx + x * cell,
+                        boardY + y * cell,
+                        cell,
+                        hit ? "#ffffff" : COLORS[type],
+                        hit ? 0.55 + flash * 0.45 : 1
+                    );
+                }
+            }
+
+            if (state.current && !state.gameOver) {
+                const c = state.current;
+                const cells = c.drawAngle === 0
+                    ? getCells(c.type, c.rot)
+                    : getCellsFloat(c.type, c.rot, c.drawAngle);
+                for (const [cx, cy] of cells) {
+                    const x = bx + (c.drawX + cx) * cell;
+                    const y = boardY + (c.drawY + cy) * cell;
+                    drawBlock(x, y, cell, COLORS[c.type]);
+                }
+            }
+
+            for (const p of state.particles) {
+                const alpha = 1 - p.age / p.life;
+                drawBlock(
+                    bx + (p.x - p.size * 0.5) * cell,
+                    boardY + (p.y - p.size * 0.5) * cell,
+                    cell * p.size,
+                    p.color,
+                    alpha
+                );
+            }
+
+            for (let i = 0; i < NEXT_COUNT; i++) {
+                const type = state.queue[i];
+                if (!type) continue;
+                const ox = sideX;
+                const previewBoxTop = i === 0 ? by : boardY;
+                const oy = previewBoxTop;
+                const previewGridSize = 4;
+                const previewBoxSize = cell * previewGridSize;
+                const previewBoxX = Math.round(ox) + 0.5;
+                const previewBoxY = Math.round(previewBoxTop - 0.5) + 0.5;
+                const previewBoxPixelSize = Math.round(previewBoxSize);
+
+                ctx.strokeStyle = "#2e3f66";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(previewBoxX, previewBoxY, previewBoxPixelSize, previewBoxPixelSize);
+
+                const cells = getCells(type, 0);
+                const minX = Math.min(...cells.map((c) => c[0]));
+                const maxX = Math.max(...cells.map((c) => c[0]));
+                const minY = Math.min(...cells.map((c) => c[1]));
+                const maxY = Math.max(...cells.map((c) => c[1]));
+
+                const offX = (previewGridSize - (maxX - minX + 1)) * 0.5 - minX;
+                const offY = (previewGridSize - (maxY - minY + 1)) * 0.5 - minY;
+                for (const [cx, cy] of cells) {
+                    drawBlock(ox + (cx + offX) * cell, oy + (cy + offY) * cell, cell, COLORS[type]);
+                }
+            }
+
+            if (state.gameOver) {
+                ctx.fillStyle = "rgba(3, 6, 14, 0.75)";
+                ctx.fillRect(bx, boardY, bw, bh);
+                ctx.fillStyle = "#ff7a94";
+                ctx.font = `bold ${Math.max(18, cell * 0.95)}px Courier New`;
+                ctx.fillText("TOP OUT", bx + bw * 0.25, boardY + bh * 0.47);
+                ctx.fillStyle = "#d7e6ff";
+                ctx.font = `${Math.max(12, cell * 0.5)}px Courier New`;
+                ctx.fillText(`Restart in ${Math.ceil(state.gameOverTimer)}s`, bx + bw * 0.21, boardY + bh * 0.55);
+            }
+        }
+
+        let lastTime = performance.now();
+
+        function tick(now) {
+            const dt = Math.min(0.033, (now - lastTime) / 1000);
+            lastTime = now;
+
+            if (state.gameOver) {
+                state.gameOverTimer -= dt;
+                if (state.gameOverTimer <= 0) {
+                    resetGame();
+                }
+            } else {
+                if (state.clearTimer > 0) {
+                    state.clearTimer -= dt;
+                    if (state.clearTimer <= 0) {
+                        clearRows(state.board, state.clearRows);
+                        state.lines += state.clearRows.length;
+                        state.clearRows = [];
+                        spawnPiece();
+                        refreshHUD();
+                    }
+                } else {
+                    if (!state.action) startNextAction();
+                    updateAction(dt);
+                }
+            }
+
+            updateParticles(dt);
+            drawScene();
+            requestAnimationFrame(tick);
+        }
+
+        ui.speedDownBtn.addEventListener("click", () => {
+            state.speed = Math.max(0.5, state.speed / 2);
+            refreshHUD();
+        });
+        ui.speedUpBtn.addEventListener("click", () => {
+            state.speed = Math.min(16, state.speed * 2);
+            refreshHUD();
+        });
+        ui.heightDownBtn.addEventListener("click", () => {
+            if (boardHeight <= MIN_BOARD_H) return;
+            boardHeight--;
+            clearScoreHistory();
+            resetGame();
+        });
+        ui.heightUpBtn.addEventListener("click", () => {
+            if (boardHeight >= MAX_BOARD_H) return;
+            boardHeight++;
+            clearScoreHistory();
+            resetGame();
+        });
+
+        window.addEventListener("resize", syncCanvasGeometry);
+
+        refreshResults();
+        resetGame();
+        requestAnimationFrame(tick);
+    </script>
+</body>
+</html>
