@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Misakamm Tetr AI</title>
+    <title>Misakamm Tetr AI 2.0</title>
     <style>
         :root {
             --bg-0: #070b14;
@@ -171,7 +171,7 @@
     </style>
 </head>
 <body>
-    <h1>Misakamm Tetr AI</h1>
+    <h1>Misakamm Tetr AI 2.0</h1>
     <div class="layout">
         <section class="viewer">
             <canvas id="canvas" width="620" height="880"></canvas>
@@ -294,14 +294,16 @@
         };
 
         const WEIGHTS = {
-            vertical: 156,
-            hole: 431,
+            vertical: 95,
+            hole: 401,
             x1Hole: 88,
-            landingHeight: 76,
-            rowsCleared: 114,
-            holeDepth: 92,
-            wellDepth: 99,
-            shapeAdaptability: 59
+            x2Hole: 88,
+            landingHeight: 67,
+            rowsCleared: 86,
+            holeDepth: 75,
+            wellDepth2: 176,
+            wellDepth3: 99,
+            shapeAdaptability: 117
         };
         const PIECE_TYPES = ["I", "J", "L", "O", "S", "T", "Z"];
 
@@ -431,10 +433,18 @@
                 if (seen.has(key)) continue;
                 seen.add(key);
                 let landingBase = 0;
+                const [minX, maxX] = xBounds(cells);
+                const rowBits = new Uint16Array(4);
+                const bottomByCol = new Int16Array(4);
+                bottomByCol.fill(-1);
                 for (const [, y] of cells) {
                     landingBase += y;
                 }
-                out.push({ rot, cells, landingBase });
+                for (const [x, y] of cells) {
+                    rowBits[y] |= (1 << x);
+                    if (y > bottomByCol[x]) bottomByCol[x] = y;
+                }
+                out.push({ rot, cells, landingBase, rowBits, bottomByCol, minX, maxX });
             }
             return out;
         }
@@ -482,6 +492,16 @@
             return ((bitboard.rowsBits[row] >> col) & 1) !== 0;
         }
 
+        function popcnt(bits) {
+            let count = 0;
+            bits >>>= 0;
+            while (bits) {
+                bits &= bits - 1;
+                count++;
+            }
+            return count;
+        }
+
         function bitSet(bitboard, row, col) {
             bitboard.rowsBits[row] |= (1 << col);
             const height = boardHeight - row;
@@ -506,6 +526,19 @@
                 y++;
             }
             return y;
+        }
+
+        function computeDropYBitboard(bitboard, rotState, ox) {
+            if (ox + rotState.minX < 0 || ox + rotState.maxX >= W) return -1;
+            let dropY = boardHeight + 4;
+            for (let c = rotState.minX; c <= rotState.maxX; c++) {
+                const bottomR = rotState.bottomByCol[c];
+                if (bottomR < 0) continue;
+                const boardC = ox + c;
+                const topFilled = boardHeight - bitboard.colHeights[boardC];
+                dropY = Math.min(dropY, topFilled - bottomR - 1);
+            }
+            return dropY >= 0 ? dropY : -1;
         }
 
         function clearLinesBitboard(bitboard) {
@@ -576,8 +609,7 @@
             function adaptabilityScoreFromMatchCount(matches) {
                 if (matches <= 0) return 0;
                 if (matches === 1) return 4;
-                if (matches === 2) return 6;
-                return 7;
+                return 6;
             }
 
             let total = 0;
@@ -610,69 +642,79 @@
         }
 
         function evaluateBoard(bitboard, rowsCleared, landingHeight, erodedPieceCellsMetric) {
+            void erodedPieceCellsMetric;
             const colHeights = Array.from(bitboard.colHeights);
             let holeScore = 0;
+            let x0Hole = 0;
             let x1Hole = 0;
-            const holeHeights = [];
-
-            for (let x = 0; x < W; x++) {
-                const h = colHeights[x];
-                if (h === 0) continue;
-                const firstFilledRow = boardHeight - h;
-                for (let y = firstFilledRow; y < boardHeight; y++) {
-                    if (!bitTest(bitboard, y, x)) {
-                        holeScore++;
-                        if (x <= 1 || x >= W - 2) x1Hole++;
-                        holeHeights.push({ height: boardHeight - y, columnHeight: h });
-                    }
-                }
-            }
-
+            let x2Hole = 0;
             let columnTransitions = 0;
-            for (let x = 0; x < W; x++) {
-                let prev = 0;
-                for (let y = 0; y < boardHeight; y++) {
-                    const cur = bitTest(bitboard, y, x) ? 1 : 0;
-                    if (cur !== prev) {
-                        columnTransitions++;
-                        prev = cur;
-                    }
-                }
-                if (prev === 0) columnTransitions++;
-            }
-
-            let holeDepth = 0;
-            if (holeHeights.length) {
-                const highestHole = Math.max(...holeHeights.map((h) => h.height));
-                for (let i = 0; i < holeHeights.length; i++) {
-                    if (holeHeights[i].height === highestHole) {
-                        holeDepth = Math.max(holeDepth, holeHeights[i].columnHeight);
-                    }
-                }
-            }
-
             let rowTransitions = 0;
-            for (let y = 0; y < boardHeight; y++) {
-                let prev = 1;
-                for (let x = 0; x < W; x++) {
-                    const cur = bitTest(bitboard, y, x) ? 1 : 0;
-                    if (cur !== prev) {
-                        rowTransitions++;
-                        prev = cur;
-                    }
-                }
-                if (prev !== 1) rowTransitions++;
+            let holeDepth = 0;
+            const fullMask = (1 << W) - 1;
+            const x0Mask = (1 << 0) | (1 << (W - 1));
+            const x1Mask = W > 2 ? ((1 << 1) | (1 << (W - 2))) & ~x0Mask : 0;
+            const x2Mask = W > 4 ? ((1 << 2) | (1 << (W - 3))) & ~x0Mask & ~x1Mask : 0;
+            const innerTransitionMask = W > 1 ? (1 << (W - 1)) - 1 : 0;
+            const rightEdgeBit = 1 << (W - 1);
+            let skyMask = fullMask;
+            let maxHeight = 0;
+            for (const h of colHeights) {
+                if (h > maxHeight) maxHeight = h;
             }
+            const holeStartRow = boardHeight - maxHeight;
+            let prevRow = 0;
+            let foundHoleDepth = false;
+            for (let y = 0; y < boardHeight; y++) {
+                const rowBits = bitboard.rowsBits[y];
+                columnTransitions += popcnt(y === 0 ? rowBits : (prevRow ^ rowBits));
+                prevRow = rowBits;
+
+                if ((rowBits & 1) === 0) rowTransitions++;
+                rowTransitions += popcnt((rowBits ^ (rowBits >> 1)) & innerTransitionMask);
+                if ((rowBits & rightEdgeBit) === 0) rowTransitions++;
+
+                if (y >= holeStartRow) {
+                    const holeBits = (~rowBits) & (~skyMask) & fullMask;
+                    if (holeBits !== 0) {
+                        holeScore += popcnt(holeBits);
+                        x0Hole += popcnt(holeBits & x0Mask);
+                        x1Hole += popcnt(holeBits & x1Mask);
+                        x2Hole += popcnt(holeBits & x2Mask);
+                        if (!foundHoleDepth) {
+                            for (let x = 0; x < W; x++) {
+                                if ((holeBits & (1 << x)) !== 0) {
+                                    holeDepth = Math.max(holeDepth, colHeights[x]);
+                                }
+                            }
+                            foundHoleDepth = true;
+                        }
+                    }
+                    skyMask &= ~rowBits;
+                }
+            }
+            columnTransitions += popcnt((~prevRow) & fullMask);
 
             function getHeight(c) {
                 if (c < 0 || c >= W) return boardHeight;
                 return colHeights[c];
             }
 
-            function calcWellScore(leftH, centerH, rightH) {
-                const h = Math.min(leftH, rightH) - centerH;
-                if (h <= 0) return 0;
-                return h * (h + 1) / 2.0;
+            // Well score table at 10x scale (matches C++ build_well_score_table).
+            // depth 1: 2*wd2, depth 2: 10*wd2, depth>=3: 10*wd3+(d-2)*deepX10.
+            // Coefficient 6 (= 60/10) applied when scoring.
+            function deepScoreX10ForCol(c) {
+                if (c === 0 || c === W - 1) return 10 * WEIGHTS.hole + 15 * WEIGHTS.x1Hole;
+                if (c === 1 || c === W - 2) return 10 * (WEIGHTS.hole + WEIGHTS.x1Hole);
+                if (c === 2 || c === W - 3) return 10 * (WEIGHTS.hole + WEIGHTS.x2Hole);
+                return 10 * WEIGHTS.hole;
+            }
+
+            function wellScoreX10(c, depth) {
+                if (depth <= 0) return 0;
+                if (depth === 1) return 2 * WEIGHTS.wellDepth2;
+                if (depth === 2) return 10 * WEIGHTS.wellDepth2;
+                return 10 * WEIGHTS.wellDepth3 + (depth - 2) * deepScoreX10ForCol(c);
             }
 
             let wellDepthSum = 0;
@@ -681,11 +723,11 @@
                 const centerH = getHeight(c);
                 const leftH = getHeight(c - 1);
                 const rightH = getHeight(c + 1);
-                if (leftH < centerH || rightH < centerH) {
-                    continue;
-                }
+                if (leftH < centerH || rightH < centerH) continue;
 
-                const wellScore = calcWellScore(leftH, centerH, rightH);
+                const depth = Math.min(leftH, rightH) - centerH;
+                const wellScore = wellScoreX10(c, depth);
+                if (wellScore <= 0) continue;
                 wellDepthSum += wellScore;
                 wellDepthMax = Math.max(wellDepthMax, wellScore);
             }
@@ -694,30 +736,46 @@
             const shapeAdaptability = evaluateShapeAdaptability(colHeights);
 
             return (
-                WEIGHTS.landingHeight * landingHeight +
-                WEIGHTS.rowsCleared * rowsCleared -
-                100.0 * rowTransitions -
-                WEIGHTS.vertical * columnTransitions -
-                WEIGHTS.hole * holeScore -
-                WEIGHTS.x1Hole * x1Hole -
-                WEIGHTS.holeDepth * holeDepth -
-                WEIGHTS.wellDepth * wellDepth +
-                WEIGHTS.shapeAdaptability * shapeAdaptability / 6.0
+                60 * WEIGHTS.landingHeight * landingHeight +
+                60 * WEIGHTS.rowsCleared * rowsCleared -
+                60 * 100 * rowTransitions -
+                60 * WEIGHTS.vertical * columnTransitions -
+                60 * WEIGHTS.hole * holeScore -
+                90 * WEIGHTS.x1Hole * x0Hole -
+                60 * WEIGHTS.x1Hole * x1Hole -
+                60 * WEIGHTS.x2Hole * x2Hole -
+                60 * WEIGHTS.holeDepth * holeDepth -
+                6 * wellDepth +
+                10 * WEIGHTS.shapeAdaptability * shapeAdaptability
             );
         }
 
         function evaluateMove(bitboard, type, rotState, x) {
             const cells = rotState.cells;
             if (!canPlaceBitboard(bitboard, cells, x, SPAWN_Y)) return null;
-            const y = hardDropYBitboard(bitboard, cells, x, SPAWN_Y);
+            const y = computeDropYBitboard(bitboard, rotState, x);
+            if (y < 0) return null;
             const placed = cells.map(([cx, cy]) => [x + cx, y + cy]);
             if (placed.some(([, py]) => py < 0)) return null;
 
             const next = cloneBitboard(bitboard);
             const pieceCellsOnRow = new Map();
-            for (const [px, py] of placed) {
-                bitSet(next, py, px);
-                pieceCellsOnRow.set(py, (pieceCellsOnRow.get(py) || 0) + 1);
+            for (let r = 0; r < 4; r++) {
+                const rowBits = rotState.rowBits[r];
+                if (rowBits === 0) continue;
+                const py = y + r;
+                const shiftedBits = x >= 0 ? (rowBits << x) : (rowBits >> -x);
+                const newBits = shiftedBits & ~next.rowsBits[py];
+                next.rowsBits[py] |= shiftedBits;
+                pieceCellsOnRow.set(py, (pieceCellsOnRow.get(py) || 0) + popcnt(shiftedBits));
+                let bits = newBits;
+                while (bits) {
+                    const bit = bits & -bits;
+                    const col = Math.trunc(Math.log2(bit));
+                    const height = boardHeight - py;
+                    if (height > next.colHeights[col]) next.colHeights[col] = height;
+                    bits &= bits - 1;
+                }
             }
 
             const landingHeight = y + rotState.landingBase / 4.0;
@@ -733,8 +791,7 @@
             const erodedPieceCellsMetric = rowsCleared * erodedCells;
             clearLinesBitboard(next);
             const score = evaluateBoard(next, rowsCleared, landingHeight, erodedPieceCellsMetric);
-            const [minX, maxX] = xBounds(cells);
-            const landingCenterTimesTwo = 2 * x + minX + maxX;
+            const landingCenterTimesTwo = 2 * x + rotState.minX + rotState.maxX;
             const boardCenterTimesTwo = W - 1;
             const centerBias = Math.abs(landingCenterTimesTwo - boardCenterTimesTwo);
             return { x, y, rot: rotState.rot, score, centerBias, boardAfter: next };
@@ -744,8 +801,7 @@
             const bitboard = boardToBitboard(board);
             const choices = [];
             for (const rotState of ROTATION_STATES[type]) {
-                const [minX, maxX] = xBounds(rotState.cells);
-                for (let x = -minX; x <= W - 1 - maxX; x++) {
+                for (let x = -rotState.minX; x <= W - 1 - rotState.maxX; x++) {
                     const mv = evaluateMove(bitboard, type, rotState, x);
                     if (mv) choices.push(mv);
                 }
