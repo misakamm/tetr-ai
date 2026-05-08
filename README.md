@@ -4,7 +4,7 @@
 
 ## Overview
 
-This is an AI implemented by Misakamm. Under the classic Tetris survival rules described below, with **no next-piece lookahead**, it reaches about **120 million lines cleared** on average, making it the first AI to exceed 100 million lines under this ruleset.
+This is an AI implemented by Misakamm. Under the classic Tetris survival rules described below, with **no next-piece lookahead**, it reaches about **270 million lines cleared** on average, making it the first public AI to exceed 100 million lines under this ruleset.
 
 ## Ruleset
 
@@ -33,6 +33,8 @@ A single game is scored by the total number of cleared lines. For multi-seed sta
 
 This project uses `pcg32_k2_fast` from the PCG random number library. It has a 2^128 state space and passes all known randomness tests, which is sufficient for these experiments.
 
+When generating pieces, the 32-bit integers produced by the RNG are treated as a bit stream. Each piece draw consumes 3 bits. If the value is 7, that value is rejected and the next 3 bits are used, until the value falls in `[0, 6]`.
+
 ## Published Records
 
 | Year | Author | Lines cleared |
@@ -41,7 +43,7 @@ This project uses `pcg32_k2_fast` from the PCG random number library. It has a 2
 | 2009 | Boumaza | 35,000,000 |
 | 2009 | Thiery & Scherrer | 35,000,000 |
 | 2013 | Victor Gabillon et al. | 51,000,000 |
-| 2026 | Misakamm | **120,000,000** |
+| 2026 | Misakamm | **270,000,000** |
 
 Notes:
 
@@ -51,19 +53,26 @@ Notes:
 - According to the [paper by Victor Gabillon et al.](https://proceedings.neurips.cc/paper_files/paper/2013/file/7504adad8bb96320eb3afdd4df6e1f60-Paper.pdf), their result is 51,000,000 lines, but no verifiable source code is available.
 - For a broader overview, see [The Game of Tetris in Machine Learning](https://arxiv.org/pdf/1905.01652).
 
+## Version History
+
+- V1.0: record was 120,000,000.
+- V2.0: fixed cross-platform RNG inconsistency, adjusted weights, and improved the record to 270,000,000.
+
 ## AI Evaluation
 
 ### Weights
 
 - `row_transitions` = 100
-- `column_transitions` = 156
-- `hole` = 431
-- `landing_height` = 76
-- `rows_cleared` = 114
-- `well_depth` = 99
+- `column_transitions` = 95
+- `hole` = 401
+- `landing_height` = 67
+- `rows_cleared` = 86
+- `well_depth_2` = 176
+- `well_depth_3` = 99
 - `x1_hole` = 88
-- `hole_depth` = 92
-- `shape_adaptability` = 59
+- `x2_hole` = 88
+- `hole_depth` = 75
+- `shape_adaptability` = 117
 
 Note: in the source code, `row_transitions` is hard-coded as a constant. `column_transitions` is named `vertical`. The other weight names match the source code.
 
@@ -79,10 +88,10 @@ Other features:
 
 - `landing_height`: a reward feature. After the piece is placed, compute the average distance from the top of the playfield for the 4 cells of the placed piece.
 - `rows_cleared`: a reward feature. Counts the number of line clears.
-- `well_depth`: a penalty feature. If a column is lower than both adjacent columns, let `h` be the smaller of the two side height differences. The single-well value is `h(h + 1) / 2`, matching Dellacherie's definition. Then compute the sum of all well values as `sum` and the largest single-well value as `max`; the final value is `sum * 2 - max`.
-- `x1_hole`: a penalty feature. Adds an extra penalty if a hole is in a column adjacent to the left or right wall, including the wall column itself and the column one cell away from the wall.
+- `well_depth_2`: a penalty feature. If a column is lower than both adjacent columns, let `h` be the smaller of the two side height differences. If `h` is 1, the value is `well_depth_2 / 5`; if `h` is 2, the value is `well_depth_2`; if `h >= 3`, the value is `well_depth_3 + (h - 2) * hole`, where `hole` depends on the x coordinate and is the hole penalty for that column. For example, at the leftmost or rightmost wall, the value is `hole + x0_hole`. Then compute the sum of all well values as `sum` and the largest single-well value as `max`; the final value is `sum * 2 - max`.
+- `x1_hole`: a penalty feature. Adds an extra penalty if a hole is in a column one cell away from the left or right wall. Similarly, there are `x0_hole` and `x2_hole`: `x0_hole` is fixed to `1.5 * x1_hole` and applies to the leftmost or rightmost wall column; `x2_hole` applies to columns two cells away from the wall.
 - `hole_depth`: a penalty feature. Find the highest hole and return the height of its column. If multiple highest holes tie, return the maximum column height among those holes.
-- `shape_adaptability`: a reward feature. This is the most complex feature. It scans every consecutive pair and triple of columns. For example, heights `3, 2, 3` match a T placement and add 1 to the match count for T. Heights `3, 3, 3` match the upside-down T orientation, as well as flat L and J placements, so this 3-column pattern adds 1 to each of those three tetrominoes. For each tetromino, the match count is clamped from 0 to 3. The score table is `0, 4, 6, 7`, so no match gives 0 points, one match gives 4 points, and so on. The I piece is excluded. The remaining 6 tetrominoes are scored and averaged. For rotation-symmetric tetrominoes such as SZO, duplicate orientations are not counted twice.
+- `shape_adaptability`: a reward feature. This is the most complex feature. It scans every consecutive pair and triple of columns. For example, heights `3, 2, 3` match a T placement and add 1 to the match count for T. Heights `3, 3, 3` match the upside-down T orientation, as well as flat L and J placements, so this 3-column pattern adds 1 to each of those three tetrominoes. For each tetromino, the match count is clamped from 0 to 2; values greater than 2 are treated as 2. The score table is `0, 4, 6`, so no match gives 0 points and one match gives 4 points. The I piece is excluded. The remaining 6 tetrominoes are scored and averaged. For rotation-symmetric tetrominoes such as SZO, duplicate orientations are not counted twice.
 
 ## AI Results
 
@@ -92,122 +101,102 @@ Based on tens of thousands of simulated games, the line-clear count at a fixed b
 
 ### Detailed Height-20 Results, Width 10
 
-At height 20, 100 seeds were run, using seeds 20000-20099:
+At height 20, 200 seeds were run, using seeds 20000-20199:
 
-| Seed |      Lines | Seed |       Lines |
-|-----:|-----------:|-----:|------------:|
-| 20000 | 124,324,219 | 20001 |  24,514,683 |
-| 20002 | 129,222,329 | 20003 | 117,028,683 |
-| 20004 | 175,083,326 | 20005 |  86,345,040 |
-| 20006 |  26,694,234 | 20007 | 219,035,385 |
-| 20008 | 170,882,893 | 20009 |  85,055,890 |
-| 20010 |  52,196,096 | 20011 |  14,395,466 |
-| 20012 |   8,228,805 | 20013 |  31,427,500 |
-| 20014 | 163,296,713 | 20015 | 166,848,280 |
-| 20016 | 114,277,346 | 20017 | 263,686,901 |
-| 20018 | 102,161,686 | 20019 |  59,945,211 |
-| 20020 | 125,597,174 | 20021 | 496,305,234 |
-| 20022 |  98,852,013 | 20023 |   8,873,084 |
-| 20024 |   6,190,016 | 20025 | 179,812,897 |
-| 20026 |  37,266,005 | 20027 | 192,060,287 |
-| 20028 |  45,789,987 | 20029 | 229,504,190 |
-| 20030 | 142,180,159 | 20031 |  48,814,385 |
-| 20032 |  62,653,507 | 20033 |  17,745,203 |
-| 20034 | 224,726,618 | 20035 | 112,484,063 |
-| 20036 | 345,362,724 | 20037 | 445,144,690 |
-| 20038 | 145,765,907 | 20039 |   7,172,243 |
-| 20040 |  40,099,583 | 20041 |  62,849,502 |
-| 20042 |  43,632,708 | 20043 | 203,628,069 |
-| 20044 |  49,725,426 | 20045 |   7,211,011 |
-| 20046 | 206,861,453 | 20047 |   2,859,635 |
-| 20048 | 123,667,553 | 20049 |  56,486,625 |
-| 20050 | 112,375,363 | 20051 |     589,097 |
-| 20052 |  82,381,236 | 20053 | 176,193,426 |
-| 20054 |  69,979,222 | 20055 |  44,623,648 |
-| 20056 |   1,600,736 | 20057 |  74,634,093 |
-| 20058 | 334,271,590 | 20059 |   4,833,575 |
-| 20060 | 100,920,468 | 20061 | 100,742,243 |
-| 20062 | 142,100,124 | 20063 |  82,296,315 |
-| 20064 |  23,438,152 | 20065 |  33,250,996 |
-| 20066 |  21,154,484 | 20067 | 280,438,213 |
-| 20068 |  78,055,829 | 20069 | 248,985,449 |
-| 20070 | 169,306,373 | 20071 | 371,768,105 |
-| 20072 |   4,760,094 | 20073 | 196,568,591 |
-| 20074 | 119,076,368 | 20075 | 209,852,442 |
-| 20076 | 100,657,692 | 20077 | 263,465,261 |
-| 20078 | 155,470,826 | 20079 |  73,284,634 |
-| 20080 | 265,824,656 | 20081 | 235,602,709 |
-| 20082 |  57,494,428 | 20083 | 183,725,161 |
-| 20084 |  22,950,403 | 20085 | 103,672,501 |
-| 20086 |   4,952,895 | 20087 | 203,312,005 |
-| 20088 |  46,482,177 | 20089 | 211,309,496 |
-| 20090 |  44,579,234 | 20091 | 191,052,943 |
-| 20092 | 225,544,047 | 20093 | 124,980,800 |
-| 20094 | 266,692,051 | 20095 |   5,816,118 |
-| 20096 | 187,840,796 | 20097 | 272,078,279 |
-| 20098 | 153,863,489 | 20099 |  37,010,598 |
+| Seed        |         Lines |         Lines |         Lines |         Lines |
+|------------:|--------------:|--------------:|--------------:|--------------:|
+| 20000-20003 |   317,118,282 |   434,718,708 |    66,832,583 |   281,978,049 |
+| 20004-20007 |   256,912,801 |   310,407,339 |   929,234,180 |     1,016,849 |
+| 20008-20011 |   265,098,050 |    85,388,679 |   552,604,612 |     6,220,383 |
+| 20012-20015 |   116,674,246 |   181,451,102 |   416,899,008 |   278,197,716 |
+| 20016-20019 |   102,479,853 |   301,566,407 |   218,785,700 |   127,780,063 |
+| 20020-20023 |    53,232,791 |    24,334,594 |     5,605,536 |    25,301,778 |
+| 20024-20027 |    77,831,990 |    79,938,070 |    34,859,749 |   338,647,362 |
+| 20028-20031 |    72,528,592 |   143,484,995 |    18,716,634 |   224,524,548 |
+| 20032-20035 |   200,660,472 |   383,959,875 |   382,844,843 |   174,203,522 |
+| 20036-20039 |   643,741,636 |   349,059,612 |   472,341,629 |   498,005,976 |
+| 20040-20043 |   375,212,414 |   144,914,225 | 1,225,848,655 |   194,238,156 |
+| 20044-20047 |    40,638,230 |   115,450,578 |   238,005,856 |   465,819,585 |
+| 20048-20051 |    27,316,587 |   346,341,144 |   363,938,540 |    56,409,992 |
+| 20052-20055 |   253,814,079 | 1,098,449,932 |     9,161,635 |   222,500,717 |
+| 20056-20059 |   130,407,358 |    19,127,541 |   111,005,164 |    11,321,606 |
+| 20060-20063 |       765,893 |   172,521,137 |   163,580,314 |   161,244,801 |
+| 20064-20067 |    82,554,014 |   172,679,424 |    84,592,129 |    92,410,994 |
+| 20068-20071 |   329,787,416 |    65,798,012 |    87,664,091 |   652,936,929 |
+| 20072-20075 |   474,702,224 |   241,827,190 | 2,471,215,820 |    47,537,514 |
+| 20076-20079 |   194,805,779 |     3,495,668 |    11,172,184 |   206,284,849 |
+| 20080-20083 |   115,686,918 |   602,392,552 |   186,664,808 |    94,006,114 |
+| 20084-20087 |   409,275,490 |   227,905,966 |   462,929,096 |    13,960,901 |
+| 20088-20091 |   190,151,822 |   460,817,598 |   101,526,494 |   235,359,646 |
+| 20092-20095 |    79,044,098 |   342,815,685 |   327,747,150 |   162,628,533 |
+| 20096-20099 |   632,568,723 |   342,170,724 |    33,582,673 |    89,084,682 |
+| 20100-20103 |   108,402,472 |     4,768,764 |   152,555,974 |    60,181,326 |
+| 20104-20107 |   413,028,131 |   451,153,453 |   555,084,954 |    56,412,783 |
+| 20108-20111 |   488,612,165 |   284,810,382 |   145,994,967 | 1,045,202,271 |
+| 20112-20115 | 1,250,510,113 |   120,565,729 |    51,381,899 |    54,927,219 |
+| 20116-20119 |   152,984,775 |   248,308,795 |   730,311,137 |   108,392,573 |
+| 20120-20123 |   345,614,040 |   240,765,208 |   230,972,796 |    10,434,127 |
+| 20124-20127 |   350,176,937 |    20,956,150 |   278,298,996 |    64,594,533 |
+| 20128-20131 |    92,072,740 |   313,083,141 |    77,710,870 |    56,530,912 |
+| 20132-20135 |    58,378,528 |   798,368,306 |   305,649,769 |   160,975,053 |
+| 20136-20139 |    28,388,405 |    96,390,499 |   142,144,451 |   274,342,849 |
+| 20140-20143 | 1,093,183,095 |   264,200,796 |   446,978,586 |    95,385,274 |
+| 20144-20147 |   234,469,087 |   145,930,086 |     1,136,632 |    41,229,193 |
+| 20148-20151 |    18,825,496 |   539,612,747 |   212,875,674 |   500,919,059 |
+| 20152-20155 | 1,135,078,012 |    97,289,611 |   293,322,110 |   319,695,682 |
+| 20156-20159 |   581,661,719 |   304,036,050 |   441,441,112 |   526,764,876 |
+| 20160-20163 |    33,062,955 |   139,578,781 |    59,326,174 |    65,906,950 |
+| 20164-20167 |       553,529 |   582,370,193 |   205,829,867 |   223,264,930 |
+| 20168-20171 |    78,959,533 |   507,960,693 |    19,274,665 |   349,349,924 |
+| 20172-20175 |   161,883,174 |     8,596,833 |   150,640,354 |   111,703,345 |
+| 20176-20179 |   487,051,799 |   167,816,721 |   504,801,536 |   546,192,899 |
+| 20180-20183 |   847,994,219 |    64,498,692 |   526,510,376 |   460,098,515 |
+| 20184-20187 |   250,941,878 |   119,532,119 |     3,618,046 |   163,143,075 |
+| 20188-20191 |    17,970,964 |    23,393,133 |   472,868,439 |   296,631,381 |
+| 20192-20195 |    66,985,595 |   305,189,420 |   222,943,509 |   695,587,761 |
+| 20196-20199 | 1,019,243,979 |    33,404,479 |   292,332,670 |   173,253,169 |
 
-Statistics over the 100 seeds above:
+Statistics over the 200 seeds above:
 
-- Mean: 124,258,320.68
-- Median: 102,917,093.50
-- Median / ln2: 148,477,980.42
-
-### Prefix Statistics at Height 16
-
-Statistics over the first N samples starting from seed 16000:
-
-| samples | seed range | Avg | Median | Median / ln2 |
-|---:|:---|---:|---:|---:|
-| 100 | 16000..16099 | 2170728.37 | 1329987.00 | 1918765.65 |
-| 200 | 16000..16199 | 2232222.80 | 1334330.50 | 1925032.00 |
-| 300 | 16000..16299 | 2320408.90 | 1622015.50 | 2340073.72 |
-| 400 | 16000..16399 | 2347783.12 | 1645420.50 | 2373840.00 |
-| 500 | 16000..16499 | 2401804.64 | 1736631.50 | 2505429.65 |
-| 600 | 16000..16599 | 2426787.70 | 1796978.50 | 2592491.97 |
-| 700 | 16000..16699 | 2455092.47 | 1781829.50 | 2570636.58 |
-| 800 | 16000..16799 | 2420420.00 | 1738858.50 | 2508642.53 |
-| 900 | 16000..16899 | 2347302.34 | 1666407.50 | 2404117.84 |
-| 1000 | 16000..16999 | 2359353.57 | 1659039.50 | 2393488.06 |
-
-At higher board heights, insufficient sample size causes the observed mean to be biased downward, and the effect becomes more significant as the height increases. Therefore, the height-20 data with insufficient samples is almost certainly underestimating the true mean.
+- Mean: 269,583,731.13
+- Median: 188,408,315.0
+- Median / ln2: 271,815,741.71
 
 ### Statistics by Board Height
 
-| Height | Avg | Median | Median / ln2 | seeds |
-|---:|---:|---:|---:|---:|
-| 5 | 26.54 | 19.00 | 27.41 | 1000 |
-| 6 | 79.24 | 55.00 | 79.35 | 1000 |
-| 7 | 219.70 | 159.00 | 229.39 | 1000 |
-| 8 | 679.00 | 460.50 | 664.36 | 1000 |
-| 9 | 1759.83 | 1251.00 | 1804.81 | 1000 |
-| 10 | 5416.68 | 3741.50 | 5397.84 | 1000 |
-| 11 | 15422.45 | 10725.00 | 15472.90 | 1000 |
-| 12 | 42533.40 | 29891.00 | 43123.60 | 1000 |
-| 13 | 117272.17 | 82191.00 | 118576.55 | 1000 |
-| 14 | 326711.53 | 232882.00 | 335977.71 | 1000 |
-| 15 | 870415.39 | 631667.00 | 911302.85 | 1000 |
-| 16 | 2359353.57 | 1659039.50 | 2393488.06 | 1000 |
-| 17 | 6350039.63 | 4527572.00 | 6531905.67 | 500 |
+| Height | Avg          | Median      | Median/ln2  |
+|-------:|-------------:|------------:|------------:|
+| 5      | 26.85        | 18.0        | 25.97       |
+| 6      | 90.07        | 65.5        | 94.50       |
+| 7      | 272.31       | 182.0       | 262.57      |
+| 8      | 825.20       | 573.5       | 827.39      |
+| 9      | 2,670.43     | 1,791.0     | 2,583.87    |
+| 10     | 7,519.81     | 4,942.5     | 7,130.52    |
+| 11     | 21,551.13    | 15,461.5    | 22,306.23   |
+| 12     | 68,485.57    | 46,994.5    | 67,798.73   |
+| 13     | 196,402.45   | 137,416.0   | 198,249.38  |
+| 14     | 577,329.26   | 408,859.0   | 589,858.85  |
+| 15     | 1,713,508.46 | 1,196,521.5 | 1,726,215.63|
+| 16     | 4,814,532.13 | 3,327,912.5 | 4,801,162.86|
+| 17     |12,649,009.52 | 9,280,883.0 |13,389,483.88|
 
 Notes:
 
-Height 5 uses seeds 5000 to 5999, height 6 uses seeds 6000 to 6999, and so on. Height 17 uses seeds 17000 to 17499.
+Height 5 uses seeds 5000 to 5999, height 6 uses seeds 6000 to 6999, and so on.
 
 Since the logarithm is not linearly increasing, I use a log-quadratic model: `ln(f(h)) = a + b*h + c*h^2`. The fitted parameters are `a`, `b`, and `c`.
 
-Fit predictions, using only the height-5 to height-16 data because the height-17 sample size is insufficient:
+Fit predictions, using height 5 through height 17. Each of those heights uses 1000 seeds, so all are included:
 
 | Height | Avg | Median | Median / ln2 |
 |---:|---:|---:|---:|
-| 17 | 6374252.52 | 4613402.86 | 6655733.43 |
-| 18 | 16954263.10 | 12404986.39 | 17896612.35 |
-| 19 | 44718240.58 | 33124675.36 | 47788804.87 |
-| 20 | 116962497.59 | 87839002.69 | 126724893.57 |
+| 18 | 36515278.30 | 26620120.38 | 38404715.66 |
+| 19 | 100457853.25 | 74277460.35 | 107159723.70 |
+| 20 | 273537447.00 | 205418770.34 | 296356641.28 |
 
-The `Median / ln2` column is derived directly from the fitted median, not fitted independently.
+The `Median / ln2` column is derived directly from the fitted median, not fitted independently. The fit differs from the measured results, but is broadly consistent.
 
-Therefore, at height 20, the mean line-clear count is about **120 million**. This record should be stable.
+Therefore, at height 20, the mean line-clear count is about **270 million**. This record should be stable.
 
 ## Reproducing the Results
 
@@ -219,38 +208,30 @@ An [AI demo page](https://misakamm.github.io/tetr-ai/) is also available.
 
 ```bash
 make
-./run_simple_ai --rows 8 --cols 10 --seed 7
+./run_simple_ai --rows 10 --seed 6
 ```
 
 Example output:
 
 ```text
-pieces=2747 lines=1092
+pieces=30204 lines=12073
 ```
 
-This means that on an 8-row by 10-column board, using random seed 7, the AI placed 2747 pieces and cleared 1092 lines. To collect multi-seed statistics, implement a small Python script that invokes this command in multiple processes.
+This means that on a 10-row by 10-column board, using random seed 6, the AI placed 30204 pieces and cleared 12073 lines. To collect multi-seed statistics, implement a small Python script that invokes this command in multiple processes.
 
 ## Training Method and Compute Cost
 
-The AI weights were optimized with the Cross Entropy (CE) Method. The optimization used 10 samples. In the early phase, each sample ran 30 games, and each game stopped after at most 150,000 line clears. In most cases the full game was not run to completion. After 30 iterations, each sample was changed to 50 games, and optimization continued for 70 more iterations to obtain the current parameters. The upper bound on total compute is:
+The AI weights were optimized with the Cross Entropy (CE) Method. The optimization used 20 samples, each sample ran 100 games, each game was a complete height-13 game, and optimization ran for 100 iterations. The upper bound on total compute is:
 
 ```text
-10 * 150000 * (30 * 30 + 50 * 70) = 6,600,000,000 lines
+20 * 200000 * 100 * 100 = 40,000,000,000 lines
 ```
 
-On my machine (MacBook M1), one core can simulate about 55 million lines per hour. Therefore the total single-core compute time is about 120 hours, or around 5 days. With two cores, it takes about 2.5 days. Compared with a CE optimization that evaluates each candidate by running full games to top out and using the final line-clear count directly, this is roughly 1/1000 of the compute cost.
+The 200000 term is the average number of cleared lines. On my machine (MacBook M1), one core can simulate about 360 million lines per hour. Therefore the total single-core compute time is about 110 hours, or just under 5 days.
 
 ### Single-Game Evaluation During Training
 
-The per-game score has two parts. First, the line-clear count `lines` is capped as `score1 = min(100000, lines)`, so a game that clears more than 100,000 lines contributes 100,000 for this part.
-
-Second, after each piece is locked, the average board height is computed and truncated to an integer. Counts of those heights are stored in 20 buckets. When the game stops, the first 4 buckets are excluded, and trailing buckets smaller than 100 are excluded. The remaining array is named `buckets`. Then compute the average of `pow(buckets[i] / bucket[0], 1.0 / i)` for `i > 0`; this value is named `score2`.
-
-The final single-game score is:
-
-```text
-score1 + 1000 / score2
-```
+The final line-clear count `lines` is used as the single-game score.
 
 ### Multi-Game Scoring
 
